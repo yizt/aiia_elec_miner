@@ -1,6 +1,7 @@
 package com.es.analyze
 
 import com.hankcs.hanlp.HanLP
+import com.hankcs.hanlp.seg.common.Term
 import com.hankcs.hanlp.tokenizer.NLPTokenizer
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
@@ -124,27 +125,43 @@ object Entropy {
         }
       sentenceList.filter(!_.isEmpty).toList
     }
+    /**
+      * 分割句子
+      * a)标点符号、连词，助词，介词，代词
+      * b)非中文字
+      * c)停用词
+      *
+      * @param wordList
+      * @return
+      */
+    def splitSentence(wordList: List[Term]): List[List[String]] = {
+      val idxList = wordList.zipWithIndex.filter { case (term, idx) => { //找到所有分割点
+        if (Stream("w", "c", "u", "p", "r").foldLeft(false)((a, pos) => a || term.nature.startsWith(pos)))
+          true
+        else if (!term.word.foldLeft(true)((a, c) => a && FileUtil.isChinese(c)))
+          true
+        else if (stopWords.contains(term.word))
+          true
+        else
+          false
+      }
+      }.map(_._2).
+        +:(-1).:+(wordList.length) //增加头尾
+      val sentenceList = for (i <- 0 until idxList.length - 1) yield {
+          val start = idxList(i) + 1
+          val end = idxList(i + 1)
+          if (start < end) wordList.slice(start, end).map(_.word)
+          else List.empty
+        }
+      sentenceList.filter(!_.isEmpty).toList
+    }
+
     lineRdd.mapPartitions(iter => {
       val seg = NLPTokenizer.SEGMENT
       iter.map(line => {
-        var nLine: String = HanLP.convertToSimplifiedChinese(line.map(CharacterHelper.regularize)) //. //全角转半角,繁体转简体，转为List[List[Term]]
-        //  replaceAll("[" + stopWords + "]", segToken)
-        nLine = FileUtil.replaceEmoji(nLine, segToken) //表情符号，以及自行使用区域 (Private Use Zone)替换
-        nLine = replaceNotChinese(nLine, segToken.charAt(0)) //非中文字符替换
-        //nLine = dealStopWords(nLine)
-
-        val sentences = nLine.split(segToken).
-          filter(_.trim.length > 0) //过滤空串
-        //所有的句子
-        sentences
-        //seg.seg2sentence(HanLP.convertToSimplifiedChinese(line.map(CharacterHelper.regularize)))
-      }).filter(!_.isEmpty). //过滤空句子
-        flatMap(x => x). //打平
-        map(sentence => {
-        //分词,保持句子中词的顺序
-        stopWordSplitSentence(seg.seg(sentence).map(_.word.trim).toList) //停用词分句, Hanlp分词，List[List[String]]
-      }).flatMap(x => x). //打平,转为List[String]
-        filter(_.length > 0) //过滤空字符串
+        splitSentence(seg.seg(line).toList)
+      }).
+        flatMap(x => x) //打平
     })
   }
 
