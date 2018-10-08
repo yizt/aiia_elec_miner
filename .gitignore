@@ -1,0 +1,7 @@
+target
+out
+tmp
+*.iml
+*.ipr
+*.iws
+*.txt
